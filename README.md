@@ -4,6 +4,8 @@ Visão Geral
 Este projeto consiste em uma plataforma web que permite aos usuários visualizar modelos 3D em formato .vtp, utilizando Trame (baseado em VTK) para renderização. O back-end é construído com FastAPI para gerenciar usuários e a interação com os modelos 3D. O front-end é baseado em Vue.js ou React.js, permitindo uma interface interativa.
 Estrutura do Projeto
 
+
+
 my_project/
 │
 ├── frontend/                 # Diretório do front-end (Vue.js ou React.js)
