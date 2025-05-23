@@ -1,0 +1,497 @@
+import '@kitware/vtk.js/favicon';
+import '@kitware/vtk.js/Rendering/Profiles/Geometry';
+import vtkActor from '@kitware/vtk.js/Rendering/Core/Actor';
+import vtkMapper from '@kitware/vtk.js/Rendering/Core/Mapper';
+import vtkColorTransferFunction from '@kitware/vtk.js/Rendering/Core/ColorTransferFunction';
+import vtkScalarBarActor from '@kitware/vtk.js/Rendering/Core/ScalarBarActor';
+import vtkFullScreenRenderWindow from '@kitware/vtk.js/Rendering/Misc/FullScreenRenderWindow';
+import vtkXMLPolyDataReader from '@kitware/vtk.js/IO/XML/XMLPolyDataReader';
+import vtkColorMaps from '@kitware/vtk.js/Rendering/Core/ColorTransferFunction/ColorMaps';
+import { ColorMode, ScalarMode } from '@kitware/vtk.js/Rendering/Core/Mapper/Constants';
+import vtkTubeFilter from '@kitware/vtk.js/Filters/General/TubeFilter';
+import { VaryRadius } from '@kitware/vtk.js/Filters/General/TubeFilter/Constants';
+import vtkPolyData from '@kitware/vtk.js/Common/DataModel/PolyData';
+
+
+// Configura renderizador e janela
+const fullScreenRenderWindow = vtkFullScreenRenderWindow.newInstance({
+  background: [0.4, 0.4, 0.45] 
+});
+const renderer = fullScreenRenderWindow.getRenderer();
+const renderWindow = fullScreenRenderWindow.getRenderWindow();
+
+// Configura barra de escala
+const scalarBarActor = vtkScalarBarActor.newInstance();
+renderer.addActor(scalarBarActor);
+
+// Cria contêiner de controles 
+const controlContainer = document.createElement('div');
+document.body.appendChild(controlContainer);
+controlContainer.style.position = 'absolute';
+controlContainer.style.top = '10px';
+controlContainer.style.left = '10px';
+controlContainer.style.padding = '10px';
+controlContainer.style.backgroundColor = 'rgba(255, 255, 255, 0.8)'; 
+
+// Seletor de mapas de cores
+const presetSelector = document.createElement('select');
+vtkColorMaps.rgbPresetNames.forEach(name => {
+  const option = document.createElement('option');
+  option.value = name;
+  option.text = name;
+  presetSelector.appendChild(option);
+});
+controlContainer.appendChild(presetSelector);
+
+
+// Seletor "Color By"
+const colorBySelector = document.createElement('select');
+controlContainer.appendChild(colorBySelector);
+
+
+// Seletor de componentes para vetores (oculto inicialmente)
+const componentSelector = document.createElement('select');
+componentSelector.style.display = 'none';
+controlContainer.appendChild(componentSelector);
+
+// Controle de opacidade
+const opacitySelector = document.createElement('input');
+opacitySelector.type = 'range';
+opacitySelector.min = 0;
+opacitySelector.max = 100;
+opacitySelector.value = 100;
+controlContainer.appendChild(document.createTextNode('Opacity'));
+controlContainer.appendChild(opacitySelector);
+
+// camera reset
+const resetButton = document.createElement('button');
+resetButton.innerText = 'Resetar Câmera';
+resetButton.style.display = 'block';
+resetButton.style.marginTop = '10px';
+controlContainer.appendChild(resetButton);
+
+resetButton.addEventListener('click', () => {
+  console.log('Resetando câmera...');
+  renderer.resetCamera();
+  renderWindow.render();
+});
+
+// Controles do filtro de tubo
+const tubeControls = document.createElement('div');
+tubeControls.style.marginTop = '10px';
+controlContainer.appendChild(tubeControls);
+const tubeCheckBox = document.createElement('input');
+tubeCheckBox.type = 'checkbox';
+tubeCheckBox.checked = true;
+tubeControls.appendChild(document.createTextNode(' Enable Tube Filter'));
+tubeControls.appendChild(tubeCheckBox);
+const radiusSelector = document.createElement('input');
+radiusSelector.type = 'range';
+radiusSelector.min = 1;
+radiusSelector.max = 100;
+radiusSelector.value = 10;
+tubeControls.appendChild(document.createElement('br'));
+tubeControls.appendChild(document.createTextNode(' Radius'));
+tubeControls.appendChild(radiusSelector);
+const nsidesSelector = document.createElement('input');
+nsidesSelector.type = 'range';
+nsidesSelector.min = 3;
+nsidesSelector.max = 50;
+nsidesSelector.value = 10;
+tubeControls.appendChild(document.createElement('br'));
+tubeControls.appendChild(document.createTextNode(' Number of Sides'));
+tubeControls.appendChild(nsidesSelector);
+const cappingSelector = document.createElement('input');
+cappingSelector.type = 'checkbox';
+cappingSelector.checked = true;
+tubeControls.appendChild(document.createElement('br'));
+tubeControls.appendChild(document.createTextNode(' Capping'));
+tubeControls.appendChild(cappingSelector);
+
+// Cria div para tabela dos dados numéricos 
+const spreadsheetDiv = document.createElement('div');
+spreadsheetDiv.id = 'spreadsheet';
+spreadsheetDiv.style.position = 'absolute';
+spreadsheetDiv.style.top = '26em'; // Abaixo dos nomes
+spreadsheetDiv.style.left = '10px';
+spreadsheetDiv.style.width = '300px';
+spreadsheetDiv.style.height = '400px';
+spreadsheetDiv.style.overflow = 'auto';
+spreadsheetDiv.style.backgroundColor = 'rgba(255,255,255,0.8)';
+spreadsheetDiv.style.padding = '10px';
+document.body.appendChild(spreadsheetDiv);
+
+// Cria div para tabela dos ArteryNames 
+const arteryTableDiv = document.createElement('div');
+arteryTableDiv.id = 'arteryTable';
+arteryTableDiv.style.position = 'absolute';
+arteryTableDiv.style.top = '11em'; // Abaixo do painel
+arteryTableDiv.style.left = '10px';
+arteryTableDiv.style.width = '300px';
+arteryTableDiv.style.height = '200px';
+arteryTableDiv.style.overflow = 'auto';
+arteryTableDiv.style.backgroundColor = 'rgba(255,255,255,0.8)';
+arteryTableDiv.style.padding = '10px';
+document.body.appendChild(arteryTableDiv);
+
+// Configura pipeline VTK
+const lookupTable = vtkColorTransferFunction.newInstance();
+scalarBarActor.setScalarsToColors(lookupTable);
+const reader = vtkXMLPolyDataReader.newInstance();
+const tubeFilter = vtkTubeFilter.newInstance();
+tubeFilter.setRadius(0.05);
+tubeFilter.setCapping(true);
+tubeFilter.setNumberOfSides(10);
+tubeFilter.setVaryRadius(VaryRadius.VARY_RADIUS_BY_ABSOLUTE_SCALAR);
+tubeFilter.setInputConnection(reader.getOutputPort());
+tubeFilter.setInputArrayToProcess(0, 'Radius', 'PointData', 'Scalars');
+const tubeMapper = vtkMapper.newInstance({
+  interpolateScalarsBeforeMapping: false,
+  useLookupTableScalarRange: true,
+  lookupTable,
+  scalarVisibility: false,
+});
+const tubeActor = vtkActor.newInstance();
+tubeActor.setMapper(tubeMapper);
+tubeMapper.setInputConnection(tubeFilter.getOutputPort());
+renderer.addActor(tubeActor);
+const lineMapper = vtkMapper.newInstance({
+  interpolateScalarsBeforeMapping: false,
+  useLookupTableScalarRange: true,
+  lookupTable,
+  scalarVisibility: false,
+});
+const lineActor = vtkActor.newInstance();
+lineActor.setMapper(lineMapper);
+lineMapper.setInputConnection(reader.getOutputPort());
+renderer.addActor(lineActor);
+lineActor.setVisibility(false);
+
+// Configura actor para que encontra cellid
+let highlightActor = null;
+let highlightMapper = null;
+
+// Função auxiliar: retorna a conectividade da célula do polyData
+function getCellConnectivity(polyData, cellId) {
+  let connectivity = null;
+  if (polyData.getLines() && polyData.getLines().getData().length > 0) {
+    const lines = polyData.getLines().getData();
+    let i = 0, current = 0;
+    while (i < lines.length) {
+      const npts = lines[i];
+      if (current === cellId) {
+        connectivity = lines.slice(i, i + npts + 1);
+        break;
+      }
+      i += npts + 1;
+      current++;
+    }
+  } else if (polyData.getPolys() && polyData.getPolys().getData().length > 0) {
+    const polys = polyData.getPolys().getData();
+    let i = 0, current = 0;
+    while (i < polys.length) {
+      const npts = polys[i];
+      if (current === cellId) {
+        connectivity = polys.slice(i, i + npts + 1);
+        break;
+      }
+      i += npts + 1;
+      current++;
+    }
+  }
+  return connectivity;
+}
+
+// Destaca a linha correspondente ao cellId selecionado
+function highlightCell(cellId, sourcePolyData) {
+  if (highlightActor) {
+    renderer.removeActor(highlightActor);
+    highlightActor.delete();
+    highlightActor = null;
+  }
+  if (cellId < 0) return;
+  const connectivity = getCellConnectivity(sourcePolyData, cellId);
+  if (!connectivity) {
+    console.warn('Célula não encontrada ou conectividade indisponível.');
+    return;
+  }
+  const highlightPolyData = vtkPolyData.newInstance();
+  highlightPolyData.setPoints(sourcePolyData.getPoints());  
+  highlightPolyData.getLines().setData(Uint32Array.from(connectivity));  // Usa "lines" para representar a célula como linha
+  highlightMapper = vtkMapper.newInstance();
+  highlightMapper.setInputData(highlightPolyData);
+  highlightActor = vtkActor.newInstance();
+  highlightActor.setMapper(highlightMapper);
+  highlightActor.getProperty().setColor(1, 0, 1);
+  highlightActor.getProperty().setLineWidth(5);
+  highlightActor.getProperty().setOpacity(1.0);
+  renderer.addActor(highlightActor);
+  renderWindow.render();
+}
+
+// Atualiza visibilidade e parâmetros do tubo
+function showTubingControl(event) {
+  const isTubeEnabled = event.target.checked;
+  tubeActor.setVisibility(isTubeEnabled);
+  lineActor.setVisibility(!isTubeEnabled);
+  renderWindow.render();
+}
+tubeCheckBox.addEventListener('change', showTubingControl);
+function updateTubeRadius(event) {
+  const radius = Number(event.target.value) / 50;
+  tubeFilter.setRadius(radius);
+  renderWindow.render();
+}
+function updateTubeNumberOfSides(event) {
+  tubeFilter.setNumberOfSides(Number(event.target.value));
+  renderWindow.render();
+}
+function updateTubeCapping(event) {
+  tubeFilter.setCapping(event.target.checked);
+  renderWindow.render();
+}
+function updateOpacity(event) {
+  const opacity = Number(event.target.value) / 100;
+  tubeActor.getProperty().setOpacity(opacity);
+  lineActor.getProperty().setOpacity(opacity);
+  renderWindow.render();
+}
+radiusSelector.addEventListener('input', updateTubeRadius);
+nsidesSelector.addEventListener('input', updateTubeNumberOfSides);
+cappingSelector.addEventListener('change', updateTubeCapping);
+opacitySelector.addEventListener('input', updateOpacity);
+
+
+// Aplica o mapa de cores escolhido
+function applyPreset() {
+  const preset = vtkColorMaps.getPresetByName(presetSelector.value);
+  lookupTable.applyColorMap(preset);
+  lookupTable.updateRange();
+  renderWindow.render();
+}
+presetSelector.addEventListener('change', applyPreset);
+
+// Gera opções para "Color By"
+function getColorByOptions(source) {
+  return [{ value: ':', label: 'Solid color' }]
+    .concat(
+      source.getPointData().getArrays().map(a => ({
+        label: `(p) ${a.getName()}`,
+        value: `PointData:${a.getName()}`
+      })),
+      source.getCellData().getArrays().map(a => ({
+        label: `(c) ${a.getName()}`,
+        value: `CellData:${a.getName()}`
+      }))
+    );
+}
+function populateColorByOptions(source) {
+  const colorByOptions = getColorByOptions(source);
+  colorBySelector.innerHTML = colorByOptions
+    .map(({ label, value }) => `<option value="${value}">${label}</option>`)
+    .join('');
+}
+function updateColorBy(event) {
+  const [location, colorByArrayName] = event.target.value.split(':');
+  let colorMode = ColorMode.DEFAULT;
+  let scalarMode = ScalarMode.DEFAULT;
+  const scalarVisibility = location.length > 0;
+  if (scalarVisibility) {
+    const usePointData = location === 'PointData';
+    const activeArray = usePointData
+      ? reader.getOutputData().getPointData().getArrayByName(colorByArrayName)
+      : reader.getOutputData().getCellData().getArrayByName(colorByArrayName);
+    if (activeArray) {
+      const dataRange = activeArray.getRange();
+      lookupTable.setMappingRange(dataRange[0], dataRange[1]);
+      lookupTable.updateRange();
+      colorMode = ColorMode.MAP_SCALARS;
+      scalarMode = usePointData ? ScalarMode.USE_POINT_FIELD_DATA : ScalarMode.USE_CELL_FIELD_DATA;
+      scalarBarActor.setAxisLabel(colorByArrayName);
+      scalarBarActor.setVisibility(true);
+    }
+  } else {
+    componentSelector.style.display = 'none';
+    scalarBarActor.setVisibility(false);
+    tubeMapper.setScalarVisibility(false);
+    lineMapper.setScalarVisibility(false);
+  }
+  [tubeMapper, lineMapper].forEach(mapper => {
+    mapper.set({ colorByArrayName, colorMode, scalarMode, scalarVisibility });
+  });
+  applyPreset();
+}
+colorBySelector.addEventListener('change', updateColorBy);
+
+// Converte sequência ASCII para texto usando "0" como fimn
+function translateAsciiToText(asciiArray) {
+  const names = [];
+  let current = '';
+  asciiArray.forEach(numStr => {
+    const num = parseInt(numStr, 10);
+    if (num === 0) {
+      names.push(current);
+      current = '';
+    } else {
+      current += String.fromCharCode(num);
+    }
+  });
+  if (current.length > 0) names.push(current);
+  return names;
+}
+
+// Busca e converte ArteryNames do arquivo VTP
+function fetchArteryNames(url) {
+  return fetch(url)
+    .then(response => response.text())
+    .then(text => {
+      const parser = new DOMParser();
+      const xmlDoc = parser.parseFromString(text, 'application/xml');
+      const arrayElement = xmlDoc.querySelector('CellData Array[Name="ArteryNames"]');
+      if (arrayElement) {
+        const content = arrayElement.textContent.trim();
+        const asciiNumbers = content.split(/\s+/);
+        return translateAsciiToText(asciiNumbers);
+      }
+      return [];
+    });
+}
+
+// Cria tabela para os ArteryNames
+function populateArteryNamesTable(arteryNames) {
+  arteryTableDiv.innerHTML = '';
+  if (arteryNames.length === 0) {
+    arteryTableDiv.innerText = 'No ArteryNames data found.';
+    return;
+  }
+  const table = document.createElement('table');
+  table.style.width = '100%';
+  table.style.borderCollapse = 'collapse';
+  table.style.fontSize = '12px';
+  const thead = document.createElement('thead');
+  const headerRow = document.createElement('tr');
+  let th = document.createElement('th');
+  th.innerText = 'Cell ID';
+  th.style.border = '1px solid #ccc';
+  headerRow.appendChild(th);
+  th = document.createElement('th');
+  th.innerText = 'ArteryNames';
+  th.style.border = '1px solid #ccc';
+  headerRow.appendChild(th);
+  thead.appendChild(headerRow);
+  table.appendChild(thead);
+  const tbody = document.createElement('tbody');
+  for (let i = 0; i < arteryNames.length; i++) {
+    const row = document.createElement('tr');
+    row.style.cursor = 'pointer';
+    row.style.backgroundColor = i % 2 === 0 ? '#f9f9f9' : '#ffffff';
+    let td = document.createElement('td');
+    td.innerText = i;
+    td.style.border = '1px solid #ccc';
+    row.appendChild(td);
+    td = document.createElement('td');
+    td.innerText = arteryNames[i];
+    td.style.border = '1px solid #ccc';
+    row.appendChild(td);
+    row.addEventListener('click', () => {
+      highlightCell(i, reader.getOutputData());
+    });
+    tbody.appendChild(row);
+  }
+  table.appendChild(tbody);
+  arteryTableDiv.appendChild(table);
+}
+
+// Cria tabela dos dados numéricos
+function populateSpreadsheet(source) {
+  spreadsheetDiv.innerHTML = '';
+  const cellData = source.getCellData();
+  const arrays = cellData.getArrays();
+  const numCells = source.getNumberOfCells();
+  const table = document.createElement('table');
+  table.style.width = '100%';
+  table.style.borderCollapse = 'collapse';
+  table.style.fontSize = '12px';
+  const thead = document.createElement('thead');
+  const headerRow = document.createElement('tr');
+  let th = document.createElement('th');
+  th.innerText = 'Cell ID';
+  th.style.border = '1px solid #ccc';
+  headerRow.appendChild(th);
+  arrays.forEach(array => {
+    th = document.createElement('th');
+    th.innerText = array.getName();
+    th.style.border = '1px solid #ccc';
+    headerRow.appendChild(th);
+  });
+  thead.appendChild(headerRow);
+  table.appendChild(thead);
+  const tbody = document.createElement('tbody');
+  for (let cellId = 0; cellId < numCells; cellId++) {
+    const row = document.createElement('tr');
+    row.style.cursor = 'pointer';
+    row.style.backgroundColor = cellId % 2 === 0 ? '#f9f9f9' : '#ffffff';
+    let td = document.createElement('td');
+    td.innerText = cellId;
+    td.style.border = '1px solid #ccc';
+    row.appendChild(td);
+    arrays.forEach(array => {
+      td = document.createElement('td');
+      const tuple = array.getTuple(cellId);
+      td.innerText = tuple.length === 1 ? tuple[0] : tuple.join(', ');
+      td.style.border = '1px solid #ccc';
+      row.appendChild(td);
+    });
+    row.addEventListener('click', () => {
+      highlightCell(cellId, source);
+    });
+    tbody.appendChild(row);
+  }
+  table.appendChild(tbody);
+  spreadsheetDiv.appendChild(table);
+}
+
+// URL do arquivo VTP
+const url = 'adan.vtp';
+console.log(url);
+
+// Carrega o arquivo VTP e configura o pipeline
+reader.setUrl(url).then(() => {
+  const source = reader.getOutputData(0);
+  tubeFilter.setInputData(source);
+  populateColorByOptions(source);
+  applyPreset();
+  populateSpreadsheet(source);
+  fetchArteryNames(url).then(arteryNames => {
+    populateArteryNamesTable(arteryNames);
+  });
+  // Cria campo de busca para a tabela arteryNames
+const arteryFilterInput = document.createElement('input');
+arteryFilterInput.type = 'text';
+arteryFilterInput.placeholder = 'Filtrar por Cell ID ou Nome...';
+arteryFilterInput.style.marginBottom = '5px';
+arteryFilterInput.style.width = '100%';
+arteryTableDiv.insertBefore(arteryFilterInput, arteryTableDiv.firstChild);
+
+// Função para filtrar a tabela de arteryNames
+arteryFilterInput.addEventListener('input', () => {
+  const filterText = arteryFilterInput.value.toLowerCase();
+  const rows = arteryTableDiv.querySelectorAll('tbody tr');
+  rows.forEach(row => {
+    const cellId = row.children[0].innerText.toLowerCase();
+    const arteryName = row.children[1].innerText.toLowerCase();
+    if (cellId.includes(filterText) || arteryName.includes(filterText)) {
+      row.style.display = '';
+    } else {
+      row.style.display = 'none';
+    }
+  });
+});
+
+  renderer.resetCamera();
+  renderWindow.render();
+});
+
+// Renderiza a cena inicial
+renderer.resetCamera();
+renderWindow.render();
